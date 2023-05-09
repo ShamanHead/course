@@ -6,4 +6,4 @@ WORKDIR /usr/src/
 
 RUN npm install
 
-CMD vite dev
+CMD npm run dev

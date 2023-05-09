@@ -14,4 +14,4 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - '80:80'
+      - '5173:5173'

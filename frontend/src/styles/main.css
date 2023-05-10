@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --blue: #016fb9;
+  --white: #FFFDF7;
+}
+
+body {
+    background-color: var(--white);
+}
+
+nav {
+    @apply flex p-2;
+
+    color: var(--white);
+    background-color: var(--blue);
+
+    .logo {
+        @apply w-1/4;
+    }
+
+    .routes {
+        @apply w-3/4 flex justify-end;
+
+        .route {
+            @apply mr-2;
+        }
+    }
+}

@@ -7,10 +7,6 @@ services:
       POSTGRES_USER: root 
       POSTGRES_PASSWORD: 3313
       POSTGRES_DB: course 
-  backend:
-    build: ./backend
-    ports:
-      - '3000:3000'
   frontend:
     build: ./frontend
     ports:

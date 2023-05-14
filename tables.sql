@@ -1,4 +1,14 @@
 
+CREATE TABLESPACE TS_USER LOCATION '/var/lib/postgresql/TS_USER';
+CREATE TABLESPACE TS_SHIPMENTS LOCATION '/var/lib/postgresql/TS_SHIPMENTS';
+CREATE TABLESPACE TS_TRACKINGS LOCATION '/var/lib/postgresql/TS_TRACKINGS';
+CREATE TABLESPACE TS_APPEALS LOCATION '/var/lib/postgresql/TS_APPEALS';
+
+drop tablespace TS_USER;
+drop tablespace TS_SHIPMENTS;
+drop tablespace TS_TRACKINGS;
+drop tablespace TS_APPEALS;
+
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) not NULL
@@ -31,7 +41,7 @@ CREATE TABLE users (
     phone_number VARCHAR(18),
     email VARCHAR(255),
     role INT REFERENCES roles(id)
-);
+) tablespace TS_USER;
 
 create unique index users_email on users(email);
 create unique index users_phone on users(phone_number);
@@ -53,9 +63,18 @@ CREATE TABLE appeals (
     status VARCHAR(255),
     user_id INT REFERENCES users(id),
     support_id INT REFERENCES users(id) NULL
-);
+) tablespace TS_APPEALS;
 
 create index appeals_id on appeals(user_id, support_id);
+
+create table appeals_messages (
+	id serial primary key,
+	appeal_id INT references appeals(id),
+	user_id INT references users(id),
+	message text
+);
+
+create index appeals_ids on appeals_messages(user_id, appeal_id);
 
 -- Создание таблицы "shipments"
 CREATE TABLE shipments (
@@ -70,7 +89,7 @@ CREATE TABLE shipments (
     dimension VARCHAR(255),
     created_at DATE,
     updated_at DATE NULL
-);
+) tablespace TS_SHIPMENTS;
 
 create index shipments_user_id on shipments(user_id);
 
@@ -82,17 +101,20 @@ CREATE TABLE trackings (
     user_id INT REFERENCES users(id),
     created_at DATE,
     updated_at DATE NULL
-);
+) tablespace TS_TRACKINGS;
 
 create unique index trackings_number on trackings(number);
 
 CREATE VIEW user_shipment_view AS
 SELECT u.id, u.first_name, u.last_name, u.middle_name, u.phone_number, u.email, u.role,
        COALESCE(SUM(s.tax), 0) AS total_tax,
-       COALESCE(SUM(s.price), 0) AS total_price
+       COALESCE(SUM(s.price), 0) AS total_price,
+       COUNT(s.id) AS shipment_count
 FROM users u
 LEFT JOIN shipments s ON u.id = s.user_id
 GROUP BY u.id, u.first_name, u.last_name, u.middle_name, u.phone_number, u.email, u.role;
+
+select * from user_shipment_view
 
 --
 
@@ -101,13 +123,15 @@ SELECT 'DROP TABLE IF EXISTS "' || tablename || '" CASCADE;'
 FROM pg_tables
 WHERE schemaname = 'public';
 
+DROP TABLE IF EXISTS "appeals_messages" CASCADE;
 DROP TABLE IF EXISTS "roles" CASCADE;
 DROP TABLE IF EXISTS "users" CASCADE;
+DROP TABLE IF EXISTS "user_role" CASCADE;
+DROP TABLE IF EXISTS "sessions" CASCADE;
 DROP TABLE IF EXISTS "appeals" CASCADE;
 DROP TABLE IF EXISTS "shipments" CASCADE;
 DROP TABLE IF EXISTS "warehouses" CASCADE;
 DROP TABLE IF EXISTS "trackings" CASCADE;
-DROP TABLE IF EXISTS "sessions" CASCADE;
 drop view user_shipment_view;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -563,3 +587,28 @@ select change_tracking_number(1, 'test', 1, '44249689da70a4715fb45d51fa444ad1');
 select delete_tracking(1, 1, '44249689da70a4715fb45d51fa444ad1');
 
 
+CREATE OR REPLACE PROCEDURE export_database()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    copy (SELECT database_to_xml(true, true, 'n')) to '/var/lib/postgresql/data/database.xml';
+END;
+$$;
+
+CREATE OR REPLACE procedure import_xml_data(xml_content xml)
+LANGUAGE plpgsql
+as $$
+BEGIN
+  -- Insert data from the XML into the appropriate tables
+  INSERT INTO users (id, first_name, last_name, middle_name, password, phone_number, email)
+  SELECT
+    (xpath('/course/public/users/id/text()', xml_content))[1]::text::integer,
+    (xpath('/course/public/users/first_name/text()', xml_content))[1]::text,
+    (xpath('/course/public/users/last_name/text()', xml_content))[1]::text,
+    (xpath('/course/public/users/middle_name/text()', xml_content))[1]::text,
+    (xpath('/course/public/users/password/text()', xml_content))[1]::text,
+    (xpath('/course/public/users/phone_number/text()', xml_content))[1]::text,
+    (xpath('/course/public/users/email/text()', xml_content))[1]::text;
+END;
+$$;
+$;

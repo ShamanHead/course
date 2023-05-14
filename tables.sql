@@ -1,5 +1,3 @@
-
-
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) not NULL
@@ -20,9 +18,11 @@ CREATE TABLE users (
     password VARCHAR(60),
     phone_number VARCHAR(18),
     email VARCHAR(255),
-    role INT REFERENCES roles(id),
-    unp VARCHAR(255)
+    role INT REFERENCES roles(id)
 );
+
+create unique index users_email on users(email);
+create unique index users_phone on users(phone_number);
 
 CREATE TABLE sessions (
     id SERIAL PRIMARY KEY,
@@ -30,6 +30,8 @@ CREATE TABLE sessions (
     token VARCHAR(255),
 	created_at DATE
 );
+
+create unique index sessions_user_id on sessions(user_id);
 
 -- Создание таблицы "appeals"
 CREATE TABLE appeals (
@@ -42,26 +44,35 @@ CREATE TABLE appeals (
     support_id INT REFERENCES users(id)
 );
 
+create index appeals_id on appeals(user_id, support_id);
+
 -- Создание таблицы "shipments"
 CREATE TABLE shipments (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id),
     status VARCHAR(10),
     warehouse_id INT REFERENCES warehouses(id),
-    price DECIMAL,
+    price DECIMAL(8,3), 
+    tax DECIMAL(8,3),
     weight DECIMAL,
     dimension VARCHAR(255),
-    created_date DATE,
-    updated_date DATE
+    created_at DATE,
+    updated_at DATE NULL
 );
+
+create index shipments_user_id on shipments(user_id);
 
 -- Создание таблицы "trackings"
 CREATE TABLE trackings (
     id SERIAL PRIMARY KEY,
     number VARCHAR(120),
     status VARCHAR(10),
-    user_id INT REFERENCES users(id)
+    user_id INT REFERENCES users(id),
+    created_at DATE,
+    updated_at DATE NULL
 );
+
+create unique index trackings_number on trackings(number);
 
 --
 
@@ -208,4 +219,5 @@ BEGIN
 END;
 $$ LANGUAGE PLPGSQL;
 
+SELECT INSERT_GENRES();
 

@@ -1,3 +1,4 @@
+
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) not NULL
@@ -47,12 +48,11 @@ create index sessions_userid on sessions(user_id);
 -- Создание таблицы "appeals"
 CREATE TABLE appeals (
     id SERIAL PRIMARY KEY,
-    appeal_type VARCHAR(255),
     topic VARCHAR(255),
     description TEXT,
     status VARCHAR(255),
     user_id INT REFERENCES users(id),
-    support_id INT REFERENCES users(id)
+    support_id INT REFERENCES users(id) NULL
 );
 
 create index appeals_id on appeals(user_id, support_id);
@@ -214,8 +214,8 @@ $$ LANGUAGE plpgsql;
 select check_user_role(1, 'Администратор')
 
 SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Пользователь');
+SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '3752933798342', 'ronyplay2473@gmail.com', 'Поддержка');
 select login_user ('ronyplay247@gmail.com', 'testpassword')
-select check_session_valid(2, '1ba3c632f5509382337dcf0d5f7267ec');
 select logout_user('08ae5df38fefe1edcb6782c6e3f800d3');
 
 CREATE OR REPLACE FUNCTION add_shipment(
@@ -462,4 +462,104 @@ $$ LANGUAGE plpgsql;
 SELECT name INTO user_role FROM roles WHERE id = (select distinct role from users where id = 1);
 
 select grant_role_to_user(1, '09c6a56cca6570095f8b30af9e53261c', 'Пользователь')
+
+CREATE OR REPLACE FUNCTION create_appeal(
+    p_topic VARCHAR(255),
+    p_description TEXT,
+    p_user_id INT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, добавляем новое обращение
+    IF is_valid_session and check_user_role(p_user_id, 'Пользователь') THEN
+        INSERT INTO appeals (topic, description, status, user_id)
+        VALUES (p_topic, p_description, 'Новый', p_user_id);
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+		RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+select create_appeal('Деньги', )
+
+CREATE OR REPLACE FUNCTION create_tracking(
+    p_number VARCHAR(120),
+    p_user_id INT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, добавляем новый трекинг
+    IF is_valid_session THEN
+        INSERT INTO trackings (number, status, user_id, created_at)
+        VALUES (p_number, 'Статус', p_user_id, current_date);
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION delete_tracking(
+    p_tracking_id INTEGER,
+    p_user_id INT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, удаляем трекинг
+    IF is_valid_session THEN
+        DELETE FROM trackings WHERE id = p_tracking_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION change_tracking_number(
+    p_tracking_id INTEGER,
+    p_new_number VARCHAR(120),
+    p_user_id INT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, меняем номер трекинга
+    IF is_valid_session THEN
+        UPDATE trackings SET number = p_new_number, updated_at = current_date
+        WHERE id = p_tracking_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+select create_tracking('fwefwefwef', 1, '44249689da70a4715fb45d51fa444ad1');
+select change_tracking_number(1, 'test', 1, '44249689da70a4715fb45d51fa444ad1');
+select delete_tracking(1, 1, '44249689da70a4715fb45d51fa444ad1');
+
 

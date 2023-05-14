@@ -1,114 +1,32 @@
-
-
-CREATE TABLE roles (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(16) not NULL
-);
-
--- Создание таблицы "warehouses"
-CREATE TABLE warehouses (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) not NULL,
-    address VARCHAR(255) not NULL
-);
-
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(60),
-    last_name VARCHAR(60),
-    middle_name VARCHAR(60),
-    password VARCHAR(60),
-    phone_number VARCHAR(18),
-    email VARCHAR(255),
-    role INT REFERENCES roles(id),
-    unp VARCHAR(255)
-);
-
-CREATE TABLE sessions (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER references users(id),
-    token VARCHAR(255),
-	created_at DATE
-);
-
--- Создание таблицы "appeals"
-CREATE TABLE appeals (
-    id SERIAL PRIMARY KEY,
-    appeal_type VARCHAR(255),
-    topic VARCHAR(255),
-    description TEXT,
-    status VARCHAR(255),
-    user_id INT REFERENCES users(id),
-    support_id INT REFERENCES users(id)
-);
-
--- Создание таблицы "shipments"
-CREATE TABLE shipments (
-    id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id),
-    status VARCHAR(10),
-    warehouse_id INT REFERENCES warehouses(id),
-    price DECIMAL,
-    weight DECIMAL,
-    dimension VARCHAR(255),
-    created_date DATE,
-    updated_date DATE
-);
-
--- Создание таблицы "trackings"
-CREATE TABLE trackings (
-    id SERIAL PRIMARY KEY,
-    number VARCHAR(120),
-    status VARCHAR(10),
-    user_id INT REFERENCES users(id)
-);
-
---
-
-SET session_replication_role = 'replica';
-SELECT 'DROP TABLE IF EXISTS "' || tablename || '" CASCADE;' 
-FROM pg_tables
-WHERE schemaname = 'public';
-
-DROP TABLE IF EXISTS "roles" CASCADE;
-DROP TABLE IF EXISTS "users" CASCADE;
-DROP TABLE IF EXISTS "appeals" CASCADE;
-DROP TABLE IF EXISTS "shipments" CASCADE;
-DROP TABLE IF EXISTS "warehouses" CASCADE;
-DROP TABLE IF EXISTS "trackings" CASCADE;
-DROP TABLE IF EXISTS "sessions" CASCADE;
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- Создание функции для регистрации пользователя
 CREATE OR REPLACE FUNCTION register_user(
-    p_first_name VARCHAR,
-    p_last_name VARCHAR,
-    p_middle_name VARCHAR,
-    p_password VARCHAR,
-    p_phone_number VARCHAR,
-    p_email VARCHAR,
-    p_role_name VARCHAR,
-    p_unp VARCHAR DEFAULT NULL
+    p_first_name VARCHAR, -- Имя пользователя
+    p_last_name VARCHAR, -- Фамилия пользователя
+    p_middle_name VARCHAR, -- Отчество пользователя
+    p_password VARCHAR, -- Пароль пользователя
+    p_phone_number VARCHAR, -- Номер телефона пользователя
+    p_email VARCHAR, -- Электронная почта пользователя
+    p_role_name VARCHAR -- Название роли пользователя
 )
 RETURNS INTEGER AS $$
 DECLARE
-    new_user_id INTEGER;
-    new_role_id INTEGER;
+    new_user_id INTEGER; -- Идентификатор нового пользователя
+    new_role_id INTEGER; -- Идентификатор роли пользователя
 BEGIN
+    -- Получение идентификатора роли на основе названия роли
     SELECT id INTO new_role_id FROM roles WHERE name ILIKE '%' || p_role_name || '%';
 
-    -- Hash the password
+    -- Хеширование пароля
     p_password := crypt(p_password, gen_salt('bf'));
 
-    -- Insert the new user with the hashed password
-    INSERT INTO users (first_name, last_name, middle_name, password, phone_number, email, role, unp)
-    VALUES (p_first_name, p_last_name, p_middle_name, p_password, p_phone_number, p_email, new_role_id, p_unp)
+    -- Вставка нового пользователя с хешированным паролем
+    INSERT INTO users (first_name, last_name, middle_name, password, phone_number, email, role)
+    VALUES (p_first_name, p_last_name, p_middle_name, p_password, p_phone_number, p_email, new_role_id)
     RETURNING id INTO new_user_id;
 
-    RETURN new_user_id;
+    RETURN new_user_id; -- Возвращение идентификатора нового пользователя
 END;
 $$ LANGUAGE plpgsql;
+
 
 CREATE OR REPLACE FUNCTION login_user(p_email VARCHAR, p_password VARCHAR)
 RETURNS VARCHAR AS $$
@@ -207,5 +125,4 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE PLPGSQL;
-
 

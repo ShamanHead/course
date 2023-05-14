@@ -288,3 +288,48 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION get_user_shipments(p_user_id INTEGER)
+RETURNS TABLE (
+    shipment_id INTEGER,
+    user_id INTEGER,
+    status VARCHAR(10),
+    address VARCHAR(100),
+    price DECIMAL(8,3),
+    tax DECIMAL(8,3),
+    weight DECIMAL,
+    dimension VARCHAR(255),
+    created_at DATE,
+    updated_at DATE
+) AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+begin
+	is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, получаем статус отправки
+    IF is_valid_session THEN
+    RETURN QUERY
+    SELECT
+        s.id AS shipment_id,
+        s.user_id,
+        s.status,
+        s.address,
+        s.price,
+        s.tax,
+        s.weight,
+        s.dimension,
+        s.created_at,
+        s.updated_at
+    FROM
+        shipments s
+    WHERE
+        s.user_id = p_user_id;
+    else 
+    	raise exception 'Сессия недействительна';
+    end if;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+

@@ -611,4 +611,159 @@ BEGIN
     (xpath('/course/public/users/email/text()', xml_content))[1]::text;
 END;
 $$;
-$;
+
+CREATE OR REPLACE FUNCTION create_appeal(
+    p_topic VARCHAR(255),
+    p_description TEXT,
+    p_user_id INT,
+    p_status VARCHAR(255),
+    p_token VARCHAR(255)
+)
+RETURNS INT AS $$
+DECLARE
+    new_appeal_id INT;
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, создаем обращение
+    IF is_valid_session THEN
+        INSERT INTO appeals (topic, description, status, user_id)
+        VALUES (p_topic, p_description, p_status, p_user_id)
+        RETURNING id INTO new_appeal_id;
+
+        RETURN new_appeal_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_appeal_status(
+    p_appeal_id INT,
+    p_status VARCHAR(255),
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, обновляем статус обращения
+    IF is_valid_session THEN
+        UPDATE appeals
+        SET status = p_status
+        WHERE id = p_appeal_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION delete_appeal(
+    p_appeal_id INT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, удаляем обращение
+    IF is_valid_session THEN
+        DELETE FROM appeals
+        WHERE id = p_appeal_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION send_appeal_message(
+    p_appeal_id INT,
+    p_user_id INT,
+    p_message TEXT,
+    p_token VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, отправляем сообщение
+    IF is_valid_session THEN
+        INSERT INTO appeals_messages (appeal_id, user_id, message)
+        VALUES (p_appeal_id, p_user_id, p_message);
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION get_all_appeals(p_user_id INT, p_token VARCHAR(255))
+RETURNS TABLE (
+    appeal_id INT,
+    topic VARCHAR(255),
+    description TEXT,
+    status VARCHAR(255),
+    user_id INT,
+    support_id INT
+) AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Check if the session is valid
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- If the session is valid, retrieve all appeals
+    IF is_valid_session THEN
+        RETURN QUERY
+        SELECT id AS appeal_id, topic, description, status, user_id, support_id
+        FROM appeals;
+    ELSE
+        -- Raise an exception if the session is invalid
+        RAISE EXCEPTION 'Invalid session';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION get_user_appeals(p_user_id INT, p_token VARCHAR(255))
+RETURNS TABLE (
+    appeal_id INT,
+    topic VARCHAR(255),
+    description TEXT,
+    status VARCHAR(255),
+    user_id INT,
+    support_id INT
+) AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Check if the session is valid
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- If the session is valid, retrieve user-specific appeals
+    IF is_valid_session THEN
+        RETURN QUERY
+        SELECT id AS appeal_id, topic, description, status, user_id, support_id
+        FROM appeals
+        WHERE user_id = p_user_id;
+    ELSE
+        -- Raise an exception if the session is invalid
+        RAISE EXCEPTION 'Invalid session';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+

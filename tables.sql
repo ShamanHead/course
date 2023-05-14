@@ -1,3 +1,4 @@
+
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) not NULL
@@ -30,8 +31,6 @@ CREATE TABLE sessions (
     token VARCHAR(255),
 	created_at DATE
 );
-
-create unique index sessions_user_id on sessions(user_id);
 
 -- Создание таблицы "appeals"
 CREATE TABLE appeals (
@@ -177,6 +176,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION remove_old_sessions()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Удаление всех старых сеансов, кроме текущего для пользователя
+    DELETE FROM sessions
+    WHERE user_id = NEW.user_id
+      AND token != NEW.token;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER remove_old_sessions_trigger
+AFTER INSERT ON sessions
+FOR EACH ROW
+EXECUTE FUNCTION remove_old_sessions();
+
 SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Пользователь');
 select login_user ('ronyplay247@gmail.com', 'testpassword')
 select check_session_valid(2, '1ba3c632f5509382337dcf0d5f7267ec');
@@ -217,28 +233,83 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION bind_warehouse_to_shipment(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
     p_shipment_id INTEGER,
     p_warehouse_id INTEGER
 )
 RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
 BEGIN
-    -- Проверяем существование отправки
-    IF NOT EXISTS (SELECT 1 FROM shipments WHERE id = p_shipment_id) THEN
-        RAISE EXCEPTION 'Отправка с указанным идентификатором не существует';
-    END IF;
+    -- Проверяем, является ли сессия действительной
+    SELECT EXISTS (
+        SELECT 1
+        FROM sessions
+        WHERE user_id = p_user_id
+          AND token = p_token
+          AND created_at = current_date
+    ) INTO is_valid_session;
 
-    -- Проверяем существование склада
-    IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = p_warehouse_id) THEN
-        RAISE EXCEPTION 'Склад с указанным идентификатором не существует';
-    END IF;
+    -- Если сессия действительна, выполняем привязку склада к отправке
+    IF is_valid_session THEN
+        -- Проверяем существование отправки
+        IF NOT EXISTS (SELECT 1 FROM shipments WHERE id = p_shipment_id) THEN
+            RAISE EXCEPTION 'Отправка с указанным идентификатором не существует';
+        END IF;
 
-    -- Привязываем склад к отправке
-    UPDATE shipments
-    SET warehouse_id = p_warehouse_id
-    WHERE id = p_shipment_id;
+        -- Проверяем существование склада
+        IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = p_warehouse_id) THEN
+            RAISE EXCEPTION 'Склад с указанным идентификатором не существует';
+        END IF;
+
+        -- Привязываем склад к отправке
+        UPDATE shipments
+        SET warehouse_id = p_warehouse_id
+        WHERE id = p_shipment_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION check_shipment_status(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_shipment_id INTEGER
+)
+RETURNS VARCHAR AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+    shipment_status VARCHAR;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    SELECT EXISTS (
+        SELECT 1
+        FROM sessions
+        WHERE user_id = p_user_id
+          AND token = p_token
+          AND created_at = current_date
+    ) INTO is_valid_session;
 
-
+    -- Если сессия действительна, получаем статус отправки
+    IF is_valid_session THEN
+        -- Получаем статус отправки
+        SELECT status INTO shipment_status
+        FROM shipments
+        WHERE id = p_shipment_id;
+        
+        -- Если отправка существует, возвращаем ее статус
+        IF FOUND THEN
+            RETURN shipment_status;
+        ELSE
+            RAISE EXCEPTION 'Отправка с указанным идентификатором не существует';
+        END IF;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
 

@@ -51,7 +51,8 @@ CREATE TABLE shipments (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id),
     status VARCHAR(10),
-    warehouse_id INT REFERENCES warehouses(id),
+    warehouse_id INT REFERENCES warehouses(id) NULL,
+    address VARCHAR(100),
     price DECIMAL(8,3), 
     tax DECIMAL(8,3),
     weight DECIMAL,
@@ -74,6 +75,14 @@ CREATE TABLE trackings (
 
 create unique index trackings_number on trackings(number);
 
+CREATE VIEW user_shipment_view AS
+SELECT u.id, u.first_name, u.last_name, u.middle_name, u.phone_number, u.email, u.role,
+       COALESCE(SUM(s.tax), 0) AS total_tax,
+       COALESCE(SUM(s.price), 0) AS total_price
+FROM users u
+LEFT JOIN shipments s ON u.id = s.user_id
+GROUP BY u.id, u.first_name, u.last_name, u.middle_name, u.phone_number, u.email, u.role;
+
 --
 
 SET session_replication_role = 'replica';
@@ -88,6 +97,7 @@ DROP TABLE IF EXISTS "shipments" CASCADE;
 DROP TABLE IF EXISTS "warehouses" CASCADE;
 DROP TABLE IF EXISTS "trackings" CASCADE;
 DROP TABLE IF EXISTS "sessions" CASCADE;
+drop view user_shipment_view;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -99,8 +109,7 @@ CREATE OR REPLACE FUNCTION register_user(
     p_password VARCHAR,
     p_phone_number VARCHAR,
     p_email VARCHAR,
-    p_role_name VARCHAR,
-    p_unp VARCHAR DEFAULT NULL
+    p_role_name VARCHAR
 )
 RETURNS INTEGER AS $$
 DECLARE
@@ -113,8 +122,8 @@ BEGIN
     p_password := crypt(p_password, gen_salt('bf'));
 
     -- Insert the new user with the hashed password
-    INSERT INTO users (first_name, last_name, middle_name, password, phone_number, email, role, unp)
-    VALUES (p_first_name, p_last_name, p_middle_name, p_password, p_phone_number, p_email, new_role_id, p_unp)
+    INSERT INTO users (first_name, last_name, middle_name, password, phone_number, email, role)
+    VALUES (p_first_name, p_last_name, p_middle_name, p_password, p_phone_number, p_email, new_role_id)
     RETURNING id INTO new_user_id;
 
     RETURN new_user_id;
@@ -173,51 +182,63 @@ select login_user ('ronyplay247@gmail.com', 'testpassword')
 select check_session_valid(2, '1ba3c632f5509382337dcf0d5f7267ec');
 select logout_user('08ae5df38fefe1edcb6782c6e3f800d3');
 
--- Импорт данных в файл json.
-
-COPY (SELECT row_to_json(Лоты) FROM Лоты) TO 'E:/file.json';
-
-
--- Импорт данных в xml.
-CREATE OR REPLACE PROCEDURE export_database()
-LANGUAGE plpgsql
-AS $$
-BEGIN
-copy (SELECT database_to_xml(true, true, 'n')) to '/var/lib/postgresql/data/database.xml';
-END;
-$$;
-
-CREATE OR REPLACE procedure import_xml_data(xml_content xml)
-LANGUAGE plpgsql
-as $$
-BEGIN
-  -- Insert data from the XML into the appropriate tables
-  INSERT INTO users (id, first_name, last_name, middle_name, password, phone_number, email)
-  SELECT
-    (xpath('/course/public/users/id/text()', xml_content))[1]::text::integer,
-    (xpath('/course/public/users/first_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/last_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/middle_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/password/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/phone_number/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/email/text()', xml_content))[1]::text;
-END;
-$$;
-
-call generate_table_definitions_xml('public');
-call export_database();
-
-CREATE OR REPLACE FUNCTION MASS_INSERT_USERS()
+CREATE OR REPLACE FUNCTION add_shipment(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_status VARCHAR(10),
+    p_address VARCHAR(100),
+    p_price DECIMAL(8,3),
+    p_tax DECIMAL(8,3),
+    p_weight DECIMAL,
+    p_dimension VARCHAR(255)
+)
 RETURNS VOID AS $$
 DECLARE
-    I INTEGER := 1;
+    is_valid_session BOOLEAN;
 BEGIN
-    WHILE I <= 100000 LOOP
-        INSERT INTO GENRE (GENRE_NAME) VALUES ('GENRE ' || I);
-        I := I + 1;
-    END LOOP;
-END;
-$$ LANGUAGE PLPGSQL;
+    -- Проверяем, является ли сессия действительной
+    SELECT EXISTS (
+        SELECT 1
+        FROM sessions
+        WHERE user_id = p_user_id
+          AND token = p_token
+          AND created_at = current_date
+    ) INTO is_valid_session;
 
-SELECT INSERT_GENRES();
+    -- Если сессия действительна, добавляем новую отправку
+    IF is_valid_session THEN
+        INSERT INTO shipments (user_id, status, address, price, tax, weight, dimension, created_at)
+        VALUES (p_user_id, p_status, p_address, p_price, p_tax, p_weight, p_dimension, current_date);
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION bind_warehouse_to_shipment(
+    p_shipment_id INTEGER,
+    p_warehouse_id INTEGER
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Проверяем существование отправки
+    IF NOT EXISTS (SELECT 1 FROM shipments WHERE id = p_shipment_id) THEN
+        RAISE EXCEPTION 'Отправка с указанным идентификатором не существует';
+    END IF;
+
+    -- Проверяем существование склада
+    IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = p_warehouse_id) THEN
+        RAISE EXCEPTION 'Склад с указанным идентификатором не существует';
+    END IF;
+
+    -- Привязываем склад к отправке
+    UPDATE shipments
+    SET warehouse_id = p_warehouse_id
+    WHERE id = p_shipment_id;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
 

@@ -1,15 +1,25 @@
-
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) not NULL
 );
 
+insert into roles (name) values ('Пользователь');
+insert into roles (name) values ('Тех. поддержка');
+insert into roles (name) values ('Курьер');
+insert into roles (name) values ('Оператор склада');
+insert into roles (name) values ('Администратор');
+
 -- Создание таблицы "warehouses"
 CREATE TABLE warehouses (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) not NULL,
     address VARCHAR(255) not NULL
 );
+
+insert into warehouses (address) values ('Ул. Казимира 5');
+insert into warehouses (address) values ('Ул. Корженевского 21');
+insert into warehouses (address) values ('Ул. Карла Маркса 10');
+insert into warehouses (address) values ('Ул. Якуба Коласа 3');
+insert into warehouses (address) values ('Ул. Сурганова 50');
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -288,7 +298,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION get_user_shipments(p_user_id INTEGER)
+CREATE OR REPLACE FUNCTION get_user_shipments(p_user_id INTEGER, p_token VARCHAR(255))
 RETURNS TABLE (
     shipment_id INTEGER,
     user_id INTEGER,
@@ -330,6 +340,109 @@ begin
 END;
 $$ LANGUAGE plpgsql;
 
+select add_shipment(
+    1,
+    '09c6a56cca6570095f8b30af9e53261c',
+    'Принято',
+    'Казимира 5',
+    0,
+    4,
+    10,
+    '10x10x10cm'
+)
 
+select get_user_shipments(
+1, 
+'09c6a56cca6570095f8b30af9e53261c'
+)
 
+select check_shipment_status(
+    1,
+    '09c6a56cca6570095f8b30af9e53261c',
+    1
+)
+
+select bind_warehouse_to_shipment(
+    1,
+    '09c6a56cca6570095f8b30af9e53261c',
+    1,
+    1
+)
+
+CREATE OR REPLACE FUNCTION add_role(
+    p_role_name VARCHAR,
+    p_user_id INT,
+    p_token VARCHAR
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+    is_admin BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Проверяем, является ли пользователь администратором
+    SELECT EXISTS (
+        SELECT 1
+        FROM users
+        WHERE role = (SELECT id FROM roles WHERE name = 'Администратор')
+    ) INTO is_admin;
+
+    -- Если сессия действительна и пользователь администратор, добавляем новую роль
+    IF is_valid_session AND is_admin THEN
+        -- Добавляем новую роль
+        INSERT INTO roles (name)
+        VALUES (p_role_name);
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна или пользователь не является администратором
+        RAISE EXCEPTION 'Недействительная сессия или отсутствует доступ к добавлению роли';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+select add_role('Роль', 1, '09c6a56cca6570095f8b30af9e53261c');
+
+CREATE OR REPLACE FUNCTION grant_role_to_user(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_role_name VARCHAR
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+    user_role VARCHAR;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, проверяем роль пользователя
+    IF is_valid_session THEN
+        -- Получаем роль пользователя
+        SELECT name INTO user_role FROM roles WHERE id = (select distinct role from users where id = p_user_id);
+
+        -- Проверяем, является ли пользователь администратором
+        IF user_role = 'Администратор' THEN
+            -- Проверяем существование роли, которую необходимо назначить
+            IF EXISTS (SELECT 1 FROM roles WHERE name ILIKE '%' || p_role_name || '%') THEN
+                -- Назначаем роль пользователю
+                UPDATE users SET role = (SELECT id FROM roles WHERE name ILIKE '%' || p_role_name || '%') WHERE id = p_user_id;
+            ELSE
+                -- Вызываем ошибку, если роль не существует
+                RAISE EXCEPTION 'Указанная роль не существует';
+            END IF;
+        ELSE
+            -- Вызываем ошибку, если пользователь не является администратором
+            RAISE EXCEPTION 'Доступ запрещен. Только пользователь с ролью "Администратор" может назначать роли';
+        END IF;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT name INTO user_role FROM roles WHERE id = (select distinct role from users where id = 1);
+
+select grant_role_to_user(1, '09c6a56cca6570095f8b30af9e53261c', 'Пользователь')
 

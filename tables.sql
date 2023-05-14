@@ -195,6 +195,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION check_user_role(p_user_id INTEGER, p_role_name VARCHAR)
+RETURNS BOOLEAN AS $$
+DECLARE
+    has_role BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+        FROM users u
+        JOIN roles r ON u.role = r.id
+        WHERE u.id = p_user_id AND r.name LIKE p_role_name
+    ) INTO has_role;
+
+    RETURN has_role;
+END;
+$$ LANGUAGE plpgsql;
+
+select check_user_role(1, 'Администратор')
 
 SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Пользователь');
 select login_user ('ronyplay247@gmail.com', 'testpassword')

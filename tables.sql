@@ -339,6 +339,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION update_shipment_status(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_shipment_id INTEGER,
+    p_status VARCHAR(10)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- Если сессия действительна, обновляем статус отправки
+    IF is_valid_session THEN
+        -- Обновляем статус отправки
+        UPDATE shipments
+        SET status = p_status,
+            updated_at = current_date
+        WHERE id = p_shipment_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
 CREATE OR REPLACE FUNCTION get_user_shipments(p_user_id INTEGER, p_token VARCHAR(255))
 RETURNS TABLE (
     shipment_id INTEGER,
@@ -380,6 +408,20 @@ begin
     end if;
 END;
 $$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE
+    function_name record;
+BEGIN
+    FOR function_name IN (
+        SELECT routine_name, routine_schema
+        FROM information_schema.routines
+        WHERE routine_name = 'g'
+    )
+    LOOP
+        EXECUTE 'DROP FUNCTION ' || quote_ident(function_name.routine_schema) || '.' || quote_ident(function_name.routine_name);
+    END LOOP;
+END$$;
 
 select add_shipment(
     1,
@@ -486,32 +528,6 @@ $$ LANGUAGE plpgsql;
 SELECT name INTO user_role FROM roles WHERE id = (select distinct role from users where id = 1);
 
 select grant_role_to_user(1, '09c6a56cca6570095f8b30af9e53261c', 'Пользователь')
-
-CREATE OR REPLACE FUNCTION create_appeal(
-    p_topic VARCHAR(255),
-    p_description TEXT,
-    p_user_id INT,
-    p_token VARCHAR(255)
-)
-RETURNS VOID AS $$
-DECLARE
-    is_valid_session BOOLEAN;
-BEGIN
-    -- Проверяем, является ли сессия действительной
-    is_valid_session := check_session_valid(p_user_id, p_token);
-
-    -- Если сессия действительна, добавляем новое обращение
-    IF is_valid_session and check_user_role(p_user_id, 'Пользователь') THEN
-        INSERT INTO appeals (topic, description, status, user_id)
-        VALUES (p_topic, p_description, 'Новый', p_user_id);
-    ELSE
-        -- Вызываем ошибку, если сессия недействительна
-		RAISE EXCEPTION 'Недействительная сессия';
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
-
-select create_appeal('Деньги', )
 
 CREATE OR REPLACE FUNCTION create_tracking(
     p_number VARCHAR(120),
@@ -766,4 +782,65 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+SELECT 'DROP FUNCTION ' || oid::regprocedure
+FROM   pg_proc
+WHERE  proname = 'create_appeal'  -- name without schema-qualification
+AND    pg_function_is_visible(oid);  -- restrict to current search_path
+
+DROP FUNCTION create_appeal(character varying,text,integer,character varying,character varying);
+DROP FUNCTION create_appeal(character varying,character varying,text,integer,character varying)
+
+CREATE ROLE ADMINISTRATOR_ROLE;
+CREATE ROLE USER_ROLE;
+CREATE ROLE SUPPORT_ROLE;
+CREATE ROLE COURIER_ROLE;
+CREATE ROLE OPERATOR_ROLE;
+
+GRANT ALL PRIVILEGES ON DATABASE "course" TO ADMINISTRATOR_ROLE;
+
+GRANT ALL ON TABLESPACE TS_USER TO ADMINISTRATOR_ROLE;
+GRANT ALL ON TABLESPACE TS_SHIPMENTS TO ADMINISTRATOR_ROLE;
+GRANT ALL ON TABLESPACE TS_TRACKINGS TO ADMINISTRATOR_ROLE;
+GRANT ALL ON TABLESPACE TS_APPEALS TO ADMINISTRATOR_ROLE;
+
+grant select, insert, update, delete on table trackings to USER_ROLE;
+grant select, insert, update on table shipments to USER_ROLE;
+grant select, insert on table appeals to USER_ROLE;
+grant select, insert on table appeals_messages to USER_ROLE;
+grant select on table warehouses to USER_ROLE;
+grant select, insert on table sessions to USER_ROLE;
+
+grant execute on function register_user to USER_ROLE;
+grant execute on function login_user to USER_ROLE;
+grant execute on function logout_user to USER_ROLE;
+grant execute on function check_session_valid to USER_ROLE;
+grant execute on function check_user_role to USER_ROLE;
+grant execute on function add_shipment to USER_ROLE;
+grant execute on function check_shipment_status to USER_ROLE;
+grant execute on function get_user_shipments to USER_ROLE;
+grant execute on function create_tracking to USER_ROLE;
+grant execute on function delete_tracking to USER_ROLE;
+grant execute on function change_tracking_number to USER_ROLE;
+grant execute on function create_appeal to USER_ROLE;
+grant execute on function delete_appeal to USER_ROLE;
+grant execute on function send_appeal_message to USER_ROLE;
+grant execute on function get_user_appeals to USER_ROLE;
+grant execute on function update_appeal_status to USER_ROLE;
+
+grant select, insert, update, delete on table appeals to SUPPORT_ROLE;
+grant execute on function create_appeal to SUPPORT_ROLE;
+grant execute on function delete_appeal to SUPPORT_ROLE;
+grant execute on function send_appeal_message to SUPPORT_ROLE;
+grant execute on function update_appeal_status to SUPPORT_ROLE;
+
+grant select, update on table shipments to COURIER_ROLE;
+grant select on table warehouses to COURIER_ROLE;
+grant execute on function check_shipment_status to COURIER_ROLE;
+grant execute on function update_shipment_status to COURIER_ROLE;
+
+grant select, update on table shipments to OPERATOR_ROLE;
+grant select on table warehouses to COURIER_ROLE;
+grant execute on function bind_warehouse_to_shipment to COURIER_ROLE;
+grant execute on function check_shipment_status to COURIER_ROLE;
+grant execute on function update_shipment_status to COURIER_ROLE;
 

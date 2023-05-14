@@ -32,6 +32,8 @@ CREATE TABLE sessions (
 	created_at DATE
 );
 
+create index sessions_userid on sessions(user_id);
+
 -- Создание таблицы "appeals"
 CREATE TABLE appeals (
     id SERIAL PRIMARY KEY,
@@ -312,4 +314,8 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+
+
+
 

@@ -103,6 +103,7 @@ drop view user_shipment_view;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Создание функции для регистрации пользователя
+-- Функция регистрации пользователя
 CREATE OR REPLACE FUNCTION register_user(
     p_first_name VARCHAR,
     p_last_name VARCHAR,
@@ -117,12 +118,13 @@ DECLARE
     new_user_id INTEGER;
     new_role_id INTEGER;
 BEGIN
+    -- Получаем идентификатор роли пользователя по имени роли
     SELECT id INTO new_role_id FROM roles WHERE name ILIKE '%' || p_role_name || '%';
 
-    -- Hash the password
+    -- Хешируем пароль
     p_password := crypt(p_password, gen_salt('bf'));
 
-    -- Insert the new user with the hashed password
+    -- Вставляем нового пользователя с хешированным паролем
     INSERT INTO users (first_name, last_name, middle_name, password, phone_number, email, role)
     VALUES (p_first_name, p_last_name, p_middle_name, p_password, p_phone_number, p_email, new_role_id)
     RETURNING id INTO new_user_id;
@@ -131,41 +133,46 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Функция входа пользователя
 CREATE OR REPLACE FUNCTION login_user(p_email VARCHAR, p_password VARCHAR)
 RETURNS VARCHAR AS $$
 DECLARE
     user_id INTEGER;
     token VARCHAR;
 BEGIN
-    -- Check if the email and hashed password match
+    -- Проверяем соответствие электронной почты и хешированного пароля
     SELECT id INTO user_id FROM users WHERE email = p_email AND password = crypt(p_password, password);
 
     IF user_id IS NOT NULL THEN
-        -- Generate a new session token
+        -- Генерируем новый токен сессии
         token := md5(random()::text || clock_timestamp()::text);
 
-        -- Insert a new session record with the generated token
+        -- Вставляем новую запись сессии с сгенерированным токеном
         INSERT INTO sessions (user_id, token, created_at)
         VALUES (user_id, token, current_date);
 
-        -- Return the user ID and session token
+        -- Возвращаем идентификатор пользователя и токен сессии
         RETURN token;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Функция выхода пользователя
 CREATE OR REPLACE FUNCTION logout_user(session VARCHAR)
 RETURNS VOID AS $$
 BEGIN
+    -- Удаляем запись сессии по токену
     DELETE FROM sessions WHERE token = session;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Функция проверки действительности сессии
 CREATE OR REPLACE FUNCTION check_session_valid(p_user_id INTEGER, p_token VARCHAR)
 RETURNS BOOLEAN AS $$
 DECLARE
     is_valid BOOLEAN;
 BEGIN
+    -- Проверяем, является ли сессия действительной
     SELECT EXISTS (
         SELECT 1
         FROM sessions
@@ -178,22 +185,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION remove_old_sessions()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Удаление всех старых сеансов, кроме текущего для пользователя
-    DELETE FROM sessions
-    WHERE user_id = NEW.user_id
-      AND token != NEW.token;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER remove_old_sessions_trigger
-AFTER INSERT ON sessions
-FOR EACH ROW
-EXECUTE FUNCTION remove_old_sessions();
 
 SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Пользователь');
 select login_user ('ronyplay247@gmail.com', 'testpassword')
@@ -215,13 +206,7 @@ DECLARE
     is_valid_session BOOLEAN;
 BEGIN
     -- Проверяем, является ли сессия действительной
-    SELECT EXISTS (
-        SELECT 1
-        FROM sessions
-        WHERE user_id = p_user_id
-          AND token = p_token
-          AND created_at = current_date
-    ) INTO is_valid_session;
+    is_valid_session := check_session_valid(p_user_id, p_token);
 
     -- Если сессия действительна, добавляем новую отправку
     IF is_valid_session THEN
@@ -245,13 +230,7 @@ DECLARE
     is_valid_session BOOLEAN;
 BEGIN
     -- Проверяем, является ли сессия действительной
-    SELECT EXISTS (
-        SELECT 1
-        FROM sessions
-        WHERE user_id = p_user_id
-          AND token = p_token
-          AND created_at = current_date
-    ) INTO is_valid_session;
+    is_valid_session := check_session_valid(p_user_id, p_token);
 
     -- Если сессия действительна, выполняем привязку склада к отправке
     IF is_valid_session THEN
@@ -287,13 +266,7 @@ DECLARE
     shipment_status VARCHAR;
 BEGIN
     -- Проверяем, является ли сессия действительной
-    SELECT EXISTS (
-        SELECT 1
-        FROM sessions
-        WHERE user_id = p_user_id
-          AND token = p_token
-          AND created_at = current_date
-    ) INTO is_valid_session;
+    is_valid_session := check_session_valid(p_user_id, p_token);
 
     -- Если сессия действительна, получаем статус отправки
     IF is_valid_session THEN
@@ -314,8 +287,4 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
-
-
-
-
 

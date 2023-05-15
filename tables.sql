@@ -1,5 +1,6 @@
 
 
+
 CREATE TABLESPACE TS_USER LOCATION '/var/lib/postgresql/TS_USER';
 CREATE TABLESPACE TS_SHIPMENTS LOCATION '/var/lib/postgresql/TS_SHIPMENTS';
 CREATE TABLESPACE TS_TRACKINGS LOCATION '/var/lib/postgresql/TS_TRACKINGS';
@@ -288,6 +289,33 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION update_shipment_status(
+    p_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_shipment_id INTEGER,
+    p_status VARCHAR(10)
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Check if the session is valid
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    -- If the session is valid, update the shipment status
+    IF is_valid_session THEN
+        UPDATE shipments
+        SET status = p_status
+        WHERE id = p_shipment_id;
+    ELSE
+        -- Raise an exception if the session is invalid
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
 CREATE OR REPLACE FUNCTION bind_warehouse_to_shipment(
     p_user_id INTEGER,
     p_token VARCHAR(255),
@@ -361,7 +389,7 @@ CREATE OR REPLACE FUNCTION update_shipment_status(
     p_user_id INTEGER,
     p_token VARCHAR(255),
     p_shipment_id INTEGER,
-    p_status VARCHAR(10)
+    p_status VARCHAR(100)
 )
 RETURNS VOID AS $$
 DECLARE
@@ -442,14 +470,21 @@ BEGIN
 END$$;
 
 select add_shipment(
-    1,
-    '09c6a56cca6570095f8b30af9e53261c',
+    2,
+    'c6680b36a25f9f4113caab8f3a815bd6',
     'Принято',
     'Казимира 5',
     0,
     4,
     10,
     '10x10x10cm'
+)
+
+select update_shipment_status(
+    2,
+   	'c6680b36a25f9f4113caab8f3a815bd6',
+    1,
+    'Поступило'
 )
 
 select get_user_shipments(

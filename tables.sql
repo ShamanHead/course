@@ -1,6 +1,5 @@
 
 
-
 CREATE TABLESPACE TS_USER LOCATION '/var/lib/postgresql/TS_USER';
 CREATE TABLESPACE TS_SHIPMENTS LOCATION '/var/lib/postgresql/TS_SHIPMENTS';
 CREATE TABLESPACE TS_TRACKINGS LOCATION '/var/lib/postgresql/TS_TRACKINGS';
@@ -137,6 +136,7 @@ DROP TABLE IF EXISTS "trackings" CASCADE;
 drop view user_shipment_view;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT exists adminpack;
 
 CREATE OR REPLACE FUNCTION remove_old_sessions()
 RETURNS TRIGGER AS $$
@@ -475,7 +475,7 @@ select add_shipment(
     'Принято',
     'Казимира 5',
     0,
-    4,
+    4,Ребят
     10,
     '10x10x10cm'
 )
@@ -664,22 +664,78 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE procedure import_xml_data(xml_content xml)
-LANGUAGE plpgsql
-as $$
+call export_database();
+
+CREATE OR REPLACE FUNCTION export_database(FILE_PATH TEXT)
+RETURNS VOID AS
+$$
+DECLARE
+  XML_DATA XML;
 BEGIN
-  -- Insert data from the XML into the appropriate tables
-  INSERT INTO users (id, first_name, last_name, middle_name, password, phone_number, email)
-  SELECT
-    (xpath('/course/public/users/id/text()', xml_content))[1]::text::integer,
-    (xpath('/course/public/users/first_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/last_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/middle_name/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/password/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/phone_number/text()', xml_content))[1]::text,
-    (xpath('/course/public/users/email/text()', xml_content))[1]::text;
+  SELECT XMLELEMENT(NAME "USERS", XMLAGG(XMLELEMENT(NAME "USER", 
+    XMLFOREST(first_name, last_name, middle_name, password, phone_number, email, role)))) INTO XML_DATA FROM users;
+
+  XML_DATA := '<?xml version="1.0" encoding="UTF-8"?>' || XML_DATA::TEXT;
+
+  PERFORM PG_FILE_WRITE(FILE_PATH, XML_DATA::TEXT,'TRUE');
 END;
-$$;
+$$
+LANGUAGE PLPGSQL;
+
+CREATE OR REPLACE FUNCTION import_xml(FILE_PATH TEXT)
+RETURNS TABLE (
+	first_name varchar(60),
+	last_name varchar(60),
+	middle_name varchar(60),
+	"password" varchar(60),
+	phone_number varchar(18),
+	email varchar(255),
+	"role" int4
+) AS $$
+DECLARE
+    XML_DATA XML;
+    USER_DATA RECORD;
+BEGIN
+ DROP TABLE IF EXISTS TEMP_USERS;
+    CREATE TEMP TABLE TEMP_USERS (
+		first_name varchar(60),
+		last_name varchar(60),
+		middle_name varchar(60),
+		"password" varchar(60),
+		phone_number varchar(18),
+		email varchar(255),
+		"role" int4
+    );
+    
+    XML_DATA := XMLPARSE(DOCUMENT CONVERT_FROM(PG_READ_BINARY_FILE(FILE_PATH), 'UTF8'));
+    
+    FOR USER_DATA IN SELECT * FROM XMLTABLE('/USERS/USER' PASSING XML_DATA columns
+        first_name varchar(60) path 'first_name',
+		last_name varchar(60) path 'last_name',
+		middle_name varchar(60) path 'middle_name',
+		password varchar(60) path 'password',
+		phone_number varchar(18) path 'phone_number',
+		email varchar(255) path 'email',
+		role int4 path 'role'
+    ) LOOP
+        INSERT INTO TEMP_USERS ( first_name, last_name, middle_name, password, phone_number, email, role)
+        VALUES (
+            USER_DATA.first_name,
+            USER_DATA.last_name,
+            USER_DATA.middle_name,
+            USER_DATA.password,
+            USER_DATA.phone_number,
+            USER_DATA.email,
+            USER_DATA.role
+        );
+    END LOOP;
+
+    RETURN QUERY SELECT * FROM TEMP_USERS;
+END;
+$$ LANGUAGE PLPGSQL;
+
+select EXPORT_USERS_TO_XML_FILE('/var/lib/postgresql/data/database.xml');
+select import_xml('/var/lib/postgresql/data/database.xml');
 
 CREATE OR REPLACE FUNCTION create_appeal(
     p_topic VARCHAR(255),

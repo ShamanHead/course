@@ -154,7 +154,8 @@ CREATE TRIGGER remove_old_sessions_trigger
 AFTER INSERT ON sessions
 FOR EACH ROW
 EXECUTE FUNCTION remove_old_sessions();
-
+select * from register_user('Не арсений','Romanovskiy','Vladimirovich','rone@emf.c','2336077303','Пользователь')
+SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Администратор');
 -- Создание функции для регистрации пользователя
 -- Функция регистрации пользователя
 CREATE OR REPLACE FUNCTION register_user(
@@ -187,29 +188,23 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Функция входа пользователя
-CREATE OR REPLACE FUNCTION login_user(p_email VARCHAR, p_password VARCHAR)
-RETURNS VARCHAR AS $$
-DECLARE
-    user_id INTEGER;
-    token VARCHAR;
+CREATE OR REPLACE FUNCTION login_user(p_email VARCHAR, p_password VARCHAR, OUT user_id INTEGER, OUT token VARCHAR)
+AS $$
 BEGIN
     -- Проверяем соответствие электронной почты и хешированного пароля
-    SELECT id INTO user_id FROM users WHERE email = p_email AND password = crypt(p_password, password);
+    SELECT id, md5(random()::text || clock_timestamp()::text)
+    INTO user_id, token
+    FROM users
+    WHERE email = p_email AND password = crypt(p_password, password);
 
     IF user_id IS NOT NULL THEN
-        -- Генерируем новый токен сессии
-        token := md5(random()::text || clock_timestamp()::text);
-
         -- Вставляем новую запись сессии с сгенерированным токеном
         INSERT INTO sessions (user_id, token, created_at)
         VALUES (user_id, token, current_date);
-
-        -- Возвращаем идентификатор пользователя и токен сессии
-        RETURN token;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
-
+drop function login_user;
 -- Функция выхода пользователя
 CREATE OR REPLACE FUNCTION logout_user(session VARCHAR)
 RETURNS VOID AS $$
@@ -276,7 +271,7 @@ DECLARE
     is_valid_session BOOLEAN;
 BEGIN
     -- Проверяем, является ли сессия действительной
-    is_valid_session := check_session_valid(p_user_id, p_token);
+    is_valid_session := check_session_valid(p_user_id, zp_token);
 
     -- Если сессия действительна, добавляем новую отправку
     IF is_valid_session THEN
@@ -423,6 +418,7 @@ RETURNS TABLE (
     tax DECIMAL(8,3),
     weight DECIMAL,
     dimension VARCHAR(255),
+    wirehouse_id INT,
     created_at DATE,
     updated_at DATE
 ) AS $$
@@ -443,6 +439,7 @@ begin
         s.tax,
         s.weight,
         s.dimension,
+        s.warehouse_id,
         s.created_at,
         s.updated_at
     FROM
@@ -454,6 +451,8 @@ begin
     end if;
 END;
 $$ LANGUAGE plpgsql;
+
+drop function get_user_shipments;
 
 DO $$
 DECLARE
@@ -475,11 +474,11 @@ select add_shipment(
     'Принято',
     'Казимира 5',
     0,
-    4,Ребят
+    4,
     10,
     '10x10x10cm'
 )
-
+select * from add_shipment(2,'8f88ede32fd982c92b3e3a1e08a9d25c','Init.','Ул. Мира, 28',0,3,100,'100x3x10')
 select update_shipment_status(
     2,
    	'c6680b36a25f9f4113caab8f3a815bd6',
@@ -627,6 +626,43 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION get_trackings(p_user_id INTEGER, p_token VARCHAR(255))
+RETURNS TABLE (
+    tracking_id INTEGER,
+    tracking_number VARCHAR(120),
+    tracking_status VARCHAR(10),
+    tracking_user_id INTEGER,
+    tracking_created_at DATE,
+    tracking_updated_at DATE
+)
+AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    is_valid_session := check_session_valid(p_user_id, p_token);
+
+    IF is_valid_session THEN
+        RETURN QUERY
+        SELECT
+            id AS tracking_id,
+            number AS tracking_number,
+            status AS tracking_status,
+            user_id AS tracking_user_id,
+            created_at AS tracking_created_at,
+            updated_at AS tracking_updated_at
+        FROM
+            trackings
+        WHERE
+            trackings.user_id = p_user_id;
+    ELSE
+        RAISE EXCEPTION 'Invalid session';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+drop function get_trackings;
+select * from get_trackings(2,'8f88ede32fd982c92b3e3a1e08a9d25c')
+
 CREATE OR REPLACE FUNCTION change_tracking_number(
     p_tracking_id INTEGER,
     p_new_number VARCHAR(120),
@@ -725,7 +761,7 @@ BEGIN
             USER_DATA.middle_name,
             USER_DATA.password,
             USER_DATA.phone_number,
-            USER_DATA.email,
+            USER_DATA.email, 
             USER_DATA.role
         );
     END LOOP;

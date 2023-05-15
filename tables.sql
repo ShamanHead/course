@@ -1,4 +1,5 @@
 
+
 CREATE TABLESPACE TS_USER LOCATION '/var/lib/postgresql/TS_USER';
 CREATE TABLESPACE TS_SHIPMENTS LOCATION '/var/lib/postgresql/TS_SHIPMENTS';
 CREATE TABLESPACE TS_TRACKINGS LOCATION '/var/lib/postgresql/TS_TRACKINGS';
@@ -136,6 +137,23 @@ drop view user_shipment_view;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+CREATE OR REPLACE FUNCTION remove_old_sessions()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Удаление всех старых сеансов, кроме текущего для пользователя
+    DELETE FROM sessions
+    WHERE user_id = NEW.user_id
+      AND token != NEW.token;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER remove_old_sessions_trigger
+AFTER INSERT ON sessions
+FOR EACH ROW
+EXECUTE FUNCTION remove_old_sessions();
+
 -- Создание функции для регистрации пользователя
 -- Функция регистрации пользователя
 CREATE OR REPLACE FUNCTION register_user(
@@ -237,7 +255,7 @@ $$ LANGUAGE plpgsql;
 
 select check_user_role(1, 'Администратор')
 
-SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Пользователь');
+SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '375293379834', 'ronyplay247@gmail.com', 'Администратор');
 SELECT register_user('Арсений', 'Романовский', 'Владимирович', 'testpassword', '3752933798342', 'ronyplay2473@gmail.com', 'Поддержка');
 select login_user ('ronyplay247@gmail.com', 'testpassword')
 select logout_user('08ae5df38fefe1edcb6782c6e3f800d3');
@@ -859,4 +877,93 @@ GRANT COURIER_ROLE TO COURIER_1;
 CREATE USER OPERATOR_1 WITH PASSWORD '123';
 GRANT OPERATOR_ROLE TO OPERATOR_1;
 
+CREATE OR REPLACE FUNCTION INSERT_WAREHOUSES()
+RETURNS VOID AS $$
+DECLARE
+    I INTEGER := 1;
+BEGIN
+    WHILE I <= 100000 LOOP
+        INSERT INTO warehouses (address) VALUES ('WareHouse ' || I);
+        I := I + 1;
+    END LOOP;
+END;
+$$ LANGUAGE PLPGSQL;
+
+select INSERT_WAREHOUSES()
+
+-- Function to update user data
+CREATE OR REPLACE FUNCTION update_user_data(
+	p_admin_id INTEGER,
+    p_token VARCHAR(255),
+    p_user_id INTEGER,
+    p_first_name VARCHAR,
+    p_last_name VARCHAR,
+    p_middle_name VARCHAR,
+    p_phone_number VARCHAR,
+    p_email VARCHAR
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(p_admin_id, p_token);
+
+    -- Если сессия действительна, обновляем данные пользователя
+    IF is_valid_session THEN
+        -- Обновляем данные пользователя
+        UPDATE users
+        SET first_name = p_first_name,
+            last_name = p_last_name,
+            middle_name = p_middle_name,
+            phone_number = p_phone_number,
+            email = p_email
+        WHERE id = p_user_id;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to delete user
+CREATE OR REPLACE FUNCTION delete_user(
+    admin_user_id INTEGER,
+    p_token VARCHAR(255),
+    p_user_to_remove INTEGER
+)
+RETURNS VOID AS $$
+DECLARE
+    is_valid_session BOOLEAN;
+BEGIN
+    -- Проверяем, является ли сессия действительной
+    is_valid_session := check_session_valid(admin_user_id, p_token);
+
+    -- Если сессия действительна, удаляем пользователя
+    IF is_valid_session then
+    	delete from sessions where user_id = p_user_to_remove;
+    	delete from trackings where user_id = p_user_to_remove;
+    	delete from shipments where user_id = p_user_to_remove;
+    	delete from appeals where user_id = p_user_to_remove;
+    	delete from appeals_messages where user_id = p_user_to_remove;
+    	-- Удаляем пользователя
+        DELETE FROM users WHERE id = p_user_to_remove;
+    ELSE
+        -- Вызываем ошибку, если сессия недействительна
+        RAISE EXCEPTION 'Недействительная сессия';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+select delete_user(1, 'a04ba18fce8e354fd090abaca2562a81', 1);
+select update_user_data(
+	1,
+    'a04ba18fce8e354fd090abaca2562a81',
+    1,
+    'Арсений',
+    'Романовский',
+    'Владимирович',
+    '375293388888',
+    'ronyplay247@gmail.com'
+)
 

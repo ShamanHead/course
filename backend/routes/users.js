@@ -4,11 +4,11 @@ var router = express.Router();
 const db = require('../db');
 
 router.post('/register', async function(req, res) {
-    const { first_name, last_name, middle_name, email, password, phone_number } = req.body;
+    // const { first_name, last_name, middle_name, email, password, phone_number } = req.body;
 
     try {
-        let result = await db.func('register_user', [first_name, last_name, middle_name, password, phone_number, email, 'Пользователь'])
-        res.json({ success: true });
+        // let result = await db.func('register_user', [first_name, last_name, middle_name, password, phone_number, email, 'Пользователь'])
+        res.json([req.body]);
     } catch (exception) {
         res.status(500).json({ error: exception });
     }

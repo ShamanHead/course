@@ -6,4 +6,4 @@ WORKDIR /usr/src/
 
 RUN npm install
 
-CMD npm start
+CMD npm run dev
